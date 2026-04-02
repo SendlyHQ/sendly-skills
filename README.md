@@ -5,15 +5,15 @@ Agent Skills for Sendly — give AI agents the knowledge to send SMS, verify pho
 ## Install
 
 ```bash
-npx skills add sendly/sendly-skills
+npx skills add SendlyHQ/sendly-skills
 ```
 
 Or install individual skills:
 
 ```bash
-npx skills add sendly/sendly-skills/sending-sms
-npx skills add sendly/sendly-skills/verifying-phones
-npx skills add sendly/sendly-skills/sms-best-practices
+npx skills add SendlyHQ/sendly-skills/sending-sms
+npx skills add SendlyHQ/sendly-skills/verifying-phones
+npx skills add SendlyHQ/sendly-skills/sms-best-practices
 ```
 
 ## Skills
