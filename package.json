@@ -1,0 +1,12 @@
+{
+  "name": "@sendly/skills",
+  "version": "1.0.0",
+  "description": "Agent Skills for Sendly — SMS sending, phone verification, and compliance best practices for AI agents.",
+  "keywords": ["sendly", "sms", "agent-skills", "mcp", "ai-agents", "otp", "verification"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SendlyHQ/sendly-skills"
+  },
+  "files": ["skills/**/*"]
+}

@@ -79,6 +79,67 @@ curl -X POST https://sendly.live/api/v1/messages/batch \
 
 Up to 10,000 recipients per batch.
 
+### Group MMS
+
+Send one message to 2–8 US/Canada recipients as a single group thread — everyone sees the other participants and replies fan out to the whole group.
+
+```bash
+curl -X POST https://sendly.live/api/v1/messages/group \
+  -H "Authorization: Bearer $SENDLY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"to": ["+14155551234", "+14155555678"], "text": "Team sync at noon?", "messageType": "transactional"}'
+```
+
+**Required:** `to` (array of 2–8 E.164 US/CA numbers), plus `text` and/or `mediaUrls`
+
+**Optional:** `from` (sender ID), `mediaUrls` (or `media_urls`), `messageType`
+
+**Response — sent (201):** the send payload carries only the message id, status, recipients, and (when the carrier assigns one) a `group_message_id`. Threading is a server-side concept — there is no `groupKey` or `participants` on this response.
+```json
+{
+  "id": "msg_abc123",
+  "status": "sent",
+  "to": ["+14155551234", "+14155555678"],
+  "group_message_id": "grp_abc123"
+}
+```
+
+**Response — simulated (201):** a test key (`sk_test_*`) or a workspace whose sending number is not yet carrier-approved returns a simulated send instead — `status` is `delivered`, no credits are charged, and `simulated` plus a human-readable `message` are present.
+```json
+{
+  "id": "msg_abc123",
+  "status": "delivered",
+  "to": ["+14155551234", "+14155555678"],
+  "simulated": true,
+  "message": "Group message simulated (test key or verification pending)."
+}
+```
+
+Group MMS is gated behind the `group_mms` feature flag (and `enable_mms` when sending media) — calls return `feature_disabled` (403) until it is enabled for your account. Requires an MMS-capable, 10DLC-registered sending number. US/Canada destinations only; other destinations return `unsupported_destination` (400).
+
+**Errors:** `invalid_request` (fewer than 2 or more than 8 recipients, or neither `text` nor `mediaUrls`), `invalid_phone`, `unsupported_destination`, `compliance_blocked` (400); `insufficient_credits` (402); `feature_disabled` (403); `undeliverable_number` (422); `send_failed` (502, carrier rejection — includes the case where the sending number's 10DLC brand/campaign is not registered).
+
+### AI message enhancement
+
+Rewrite a draft into a single, polished SMS segment (≤160 chars) and get a short explanation of what changed. Pass `messageType` to steer the rewrite; with no `text` it generates a suitable message for that type. At least one of `text` or `messageType` is required.
+
+```bash
+curl -X POST https://sendly.live/api/v1/ai/enhance \
+  -H "Authorization: Bearer $SENDLY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "hey come check out our sale this weekend", "messageType": "marketing"}'
+```
+
+**Response (200):**
+```json
+{
+  "enhanced": "This weekend only: shop our sale and save. Reply STOP to opt out.",
+  "explanation": "Tightened the copy, added a clear CTA and opt-out for marketing compliance."
+}
+```
+
+Gated behind the `ai_classification` feature flag — returns `not_found` (404) when disabled. Passing neither `text` nor `messageType` returns `invalid_request` (400). If the enhancement model is briefly unavailable, the response falls back to the original `text` with an empty `explanation`.
+
 ### List messages
 
 ```bash
@@ -86,7 +147,7 @@ curl "https://sendly.live/api/v1/messages?limit=50" \
   -H "Authorization: Bearer $SENDLY_API_KEY"
 ```
 
-Supports `limit`, `offset`, `status`, `q` (full-text search).
+Supports `limit` (max 100), `offset`, `status`, and `q` (full-text search).
 
 ## Node.js SDK
 
@@ -102,6 +163,8 @@ const sendly = new Sendly(process.env.SENDLY_API_KEY!);
 const msg = await sendly.messages.send({ to: "+15551234567", text: "Hello!", messageType: "transactional" });
 const scheduled = await sendly.messages.schedule({ to: "+15551234567", text: "Later!", messageType: "transactional", scheduledAt: "2026-04-01T14:00:00Z" });
 const batch = await sendly.messages.sendBatch({ messages: [{to: "+15551234567", text: "Hi"}], messageType: "transactional" });
+const group = await sendly.messages.sendGroup({ to: ["+14155551234", "+14155555678"], text: "Team sync at noon?", messageType: "transactional" });
+const improved = await sendly.messages.enhance({ text: "hey come check out our sale", messageType: "marketing" });
 const list = await sendly.messages.list({ limit: 50 });
 const single = await sendly.messages.get("msg_abc123");
 ```
@@ -122,6 +185,8 @@ Use `sk_test_*` keys with magic phone numbers:
 | +15005550000 | Always succeeds |
 | +15005550001 | Invalid number error |
 | +15005550002 | Cannot route error |
+| +15005550003 | Queue full |
+| +15005550004 | Rate limit exceeded |
 | +15005550006 | Carrier rejected |
 
 ## Credit costs
