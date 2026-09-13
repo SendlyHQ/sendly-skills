@@ -1,6 +1,6 @@
 # @sendly/skills
 
-Agent Skills for Sendly — give AI agents the knowledge to send SMS and WhatsApp messages, verify phone numbers, manage numbers and API keys, and follow compliance best practices.
+Agent Skills for Sendly — give AI agents the knowledge to send SMS and WhatsApp messages, place AI-handled phone calls, verify phone numbers, manage numbers and API keys, and follow compliance best practices.
 
 ## Install
 
@@ -19,6 +19,7 @@ npx skills add SendlyHQ/sendly-skills/shortening-links
 npx skills add SendlyHQ/sendly-skills/managing-numbers
 npx skills add SendlyHQ/sendly-skills/rotating-api-keys
 npx skills add SendlyHQ/sendly-skills/upgrading-business-entity
+npx skills add SendlyHQ/sendly-skills/voice-calls
 ```
 
 ## Skills
@@ -33,6 +34,7 @@ npx skills add SendlyHQ/sendly-skills/upgrading-business-entity
 | **managing-numbers** | Manage owned phone numbers — list, inspect, set the default sender, cancel a scheduled release, release |
 | **rotating-api-keys** | Rotate an API key with a grace period so callers roll over with zero downtime |
 | **upgrading-business-entity** | Move a workspace to a new legal entity (LLC formation, new EIN, rebrand) with zero send disruption |
+| **voice-calls** | AI phone calls via the Calls API: place an outbound call handled by a workspace agent, watch it, read the transcript, fetch the recording, hang up, and recover from every refusal code (rollout-gated, US and Canada) |
 
 ## Compatibility
 
@@ -49,7 +51,7 @@ Works with any agent that supports SKILL.md files:
 
 ## Beyond these skills
 
-These skills wrap the most common flows, but the full Sendly API surface is much broader — messages (single, batch, group MMS, scheduled), AI message enhancement, phone verification, branded URL shortening, numbers and porting, conversations, contacts, campaigns, templates, and webhooks. Reach the whole toolset through:
+These skills wrap the most common flows, but the full Sendly API surface is much broader — messages (single, batch, group MMS, scheduled), AI message enhancement, phone verification, branded URL shortening, numbers and porting, AI-handled phone calls and recordings, conversations, contacts, campaigns, templates, and webhooks. Reach the whole toolset through:
 
 - **Node.js SDK** — [`@sendly/node`](https://www.npmjs.com/package/@sendly/node)
 - **Python SDK** — [`sendly`](https://pypi.org/project/sendly/)
