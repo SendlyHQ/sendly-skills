@@ -58,7 +58,7 @@ curl -X POST https://sendly.live/api/v1/whatsapp/signup \
   -d '{"phoneNumber": "+15125550190"}'
 ```
 
-**Required:** `phoneNumber` — an active number in your workspace (purchased or ported into Sendly).
+**Required:** `phoneNumber` — an active number in your workspace (bought, provisioned, or fully ported into Sendly; hosted-SMS numbers are refused).
 
 **Response:**
 ```json
