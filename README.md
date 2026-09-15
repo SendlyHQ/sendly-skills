@@ -34,7 +34,7 @@ npx skills add SendlyHQ/sendly-skills/voice-calls
 | **managing-numbers** | Manage owned phone numbers — list, inspect, set the default sender, cancel a scheduled release, release |
 | **rotating-api-keys** | Rotate an API key with a grace period so callers roll over with zero downtime |
 | **upgrading-business-entity** | Move a workspace to a new legal entity (LLC formation, new EIN, rebrand) with zero send disruption |
-| **voice-calls** | AI phone calls via the Calls API: place an outbound call handled by a workspace agent, watch it, read the transcript, fetch the recording, hang up, and recover from every refusal code (rollout-gated, US and Canada) |
+| **voice-calls** | AI phone calls via the Calls and Voice APIs: configure numbers (switch voice on, choose who answers, register the emergency address) and the AI agents that answer and place calls, then place an outbound call handled by an agent, watch it, read the transcript, fetch the recording, hang up, and recover from every refusal code (rollout-gated, US and Canada) |
 
 ## Compatibility
 
