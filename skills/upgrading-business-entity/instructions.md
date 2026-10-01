@@ -32,18 +32,20 @@ This is the #1 reassurance users want.
 
 Read-only. Dry-runs the proposed new-entity details against carrier rules and returns:
 
-- `issues` — list of problems with the proposed payload.
-- `suggestions` / auto-fixes — usable corrections (e.g. "sole-prop + EIN mismatch → set `entityType: PRIVATE_PROFIT`").
+- `verdict` — `ready`, `warnings` (only warnings) or `blocked` (at least one blocker).
+- `issues` — each with `severity` (`blocker`, `warning` or `info`), `field`, `code`, `message` and sometimes `suggestion`.
+- `proposedFixes` — usable corrections, each with `field`, `current`, `proposed` and `reason` (e.g. sole-prop + EIN → `entityType` proposed `PRIVATE_PROFIT`).
+- `country` and `domainAge`, and `registry` — `{ found, registeredName, status }` from the business registry check, or `null` when no lookup ran.
 
 **When to use**: every time the user provides (or revises) entity details, before any state-changing call.
 
-**Inputs**: `businessName`, `brn`, `brnType`, `brnCountry`, `entityType` (required); messaging fields (`useCase`, `sampleMessages`, etc.) and address/contact fields (optional).
+**Inputs**: `businessName`, `brn`, `brnType`, `brnCountry`, `entityType`, plus every other field the upgrade will use. Preflight checks only what you pass and fills nothing from the workspace, so `website`, `address1`, `city`, `state`, `zip`, `contactFirstName`, `contactLastName`, `contactEmail`, `contactPhone`, `monthlyVolume`, `useCase`, `useCaseSummary`, `sampleMessages`, `optInWorkflow` and `additionalInformation` each come back as a blocker when missing. Fill the messaging fields from `get_business_upgrade_best_prefill` first.
 
 **Use the auto-fixes**: re-preflight after applying them, then confirm the corrected values with the user.
 
 ### 2. `get_business_upgrade_best_prefill`
 
-Read-only. Returns the most-recent non-empty value across all of the caller's verified workspaces for messaging fields (`useCase`, `useCaseSummary`, `sampleMessages`, `optInWorkflow`, `privacyUrl`, `termsUrl`, etc.).
+Read-only. Returns `{ prefill, sourceWorkspaceCount }`: `prefill` holds the most-recent non-empty value across all of the caller's verified workspaces for the messaging fields (`monthlyVolume`, `useCase`, `useCaseSummary`, `sampleMessages`, `optInWorkflow`, `privacyUrl`, `termsUrl`, `additionalInformation`, etc.). It returns no address or contact fields.
 
 **When to use**: when the user has at least one other verified workspace and you want sane defaults for the messaging-content fields. Optional but recommended.
 
@@ -61,23 +63,23 @@ State-changing. Provisions a new toll-free number + messaging profile under the 
 
 - `einDocBase64` — IRS CP-575 or 147C letter, base64-encoded PDF, ≤5MB. **Required-in-practice when the new entity was formed within the last ~6 months** (the EIN isn't yet in public registries, so the carrier rejects without proof).
 - `einDocFilename` — optional, defaults to `ein-doc.pdf`.
-- Address fields, contact fields, `useCase`, `sampleMessages`, `optInWorkflow` — all improve approval odds. Pull from `get_business_upgrade_best_prefill` when available.
+- Address fields, contact fields, `useCase`, `sampleMessages`, `optInWorkflow` — all improve approval odds, and preflight blocks without them. Pull the messaging fields from `get_business_upgrade_best_prefill` when available; ask the user for address and contact.
 
 **Idempotency**: server enforces one pending upgrade per workspace. A second `start_business_upgrade` call while one is in flight will return an error — use `get_business_upgrade_status` to check before retrying, or `cancel_business_upgrade` if you need to start over.
 
 ### 4. `get_business_upgrade_status` (poll on later turns)
 
-Read-only. Returns either the pending upgrade row or `null`.
+Read-only. Returns `{ pending }`: the pending upgrade row (`id`, `businessName`, `status`, `entityType`, `brnType`, `brnCountry`, `tollFreeNumber`, `rejectionReason`, `createdAt`, `updatedAt`), or `null` when none is in flight. `pending` also becomes `null` once the review finishes: on approval the workspace swaps onto the new verification, and on an outright rejection the upgrade is discarded. Either way Sendly emails the user the outcome (see below).
 
 **Pending-row statuses**:
 
 | Status | Meaning | Agent action |
 |---|---|---|
-| `pending` | Submitted, not yet picked up by carrier | "Still in review, nothing to do." |
-| `processing` | Sitting in carrier queue | Same as `pending`. |
+| `provisioning` | New number and messaging profile being set up, not yet with the carrier | "Still in progress, nothing to do." |
+| `pending` / `in_progress` / `processing` | With the carrier for review | "Still in review, nothing to do." |
 | `action_required` | Carrier wants more info (see `rejectionReason`) | Surface the reason, gather corrections, run `preflight` then `resubmit_business_upgrade`. |
-| `rejected` | Hard rejection | Same as `action_required` — gather corrections, preflight, resubmit. |
-| `verified` | Approved — workspace already swapped to new number | Congratulate, then offer the old-number disposition. |
+
+`{ "pending": null }` after a submission means the review has finished, and Sendly has emailed the user the outcome. On approval the new entity is already the workspace's active one: congratulate, then offer the old-number disposition. On an outright rejection the upgrade is discarded, so resubmit returns `404 no_pending_upgrade`: gather corrections, preflight, and call `start_business_upgrade` again.
 
 **Inputs**: `workspaceId`.
 
@@ -87,7 +89,7 @@ Read-only. Returns either the pending upgrade row or `null`.
 
 State-changing. Same field shape as `start_business_upgrade`. Fields you omit keep their previously-submitted values.
 
-**When to use**: status is `rejected` or `action_required`. Always run `preflight_business_upgrade` with the corrected fields first.
+**When to use**: status is `action_required`. Always run `preflight_business_upgrade` with the corrected fields first. After an outright rejection the upgrade is discarded and this returns `404 no_pending_upgrade`: start a new upgrade instead.
 
 **Inputs**: same as `start_business_upgrade`. Can attach a fresh `einDocBase64` if the carrier asked for better documentation.
 

@@ -42,11 +42,11 @@ Behind the scenes Sendly:
 
 | Tool | When to use |
 |---|---|
-| `preflight_business_upgrade` | Always call first. Dry-runs the new entity details against carrier rules and returns issues + auto-fix suggestions (e.g. "sole-prop + EIN mismatch — change entity to PRIVATE_PROFIT"). Read-only. |
+| `preflight_business_upgrade` | Always call first. Dry-runs the new entity details against carrier rules and returns `{ verdict, issues, proposedFixes, ... }`: `verdict` is `ready`, `warnings` or `blocked`, and `proposedFixes` holds auto-fixes (e.g. sole-prop + EIN → `entityType` `PRIVATE_PROFIT`). It checks only the fields you pass, so pass every field the upgrade will use. Read-only. |
 | `get_business_upgrade_best_prefill` | Optional. Pulls best-of (most-recent non-empty) values across the user's other verified workspaces for fields like `useCase`, `sampleMessages`, `optInWorkflow`. Useful when the current workspace's record is sparse. |
 | `start_business_upgrade` | Actually submits the upgrade. Provisions new TFN + messaging profile, files carrier verification, stores EIN doc. Idempotent guard server-side (one pending upgrade per workspace). |
-| `get_business_upgrade_status` | Poll on subsequent turns. Returns the pending row with `status` ∈ {`pending`, `processing`, `action_required`, `rejected`, `verified`} plus the target TFN and any rejection reason. Returns `null` if no upgrade is in flight. |
-| `resubmit_business_upgrade` | Use when status is `rejected` or `action_required`. Same field shape as `start_business_upgrade`; omitted fields keep their previously-submitted values. Pair with a fresh `preflight_business_upgrade` first. |
+| `get_business_upgrade_status` | Poll on subsequent turns. Returns `{ "pending": row }` with `status` ∈ {`provisioning`, `pending`, `in_progress`, `processing`, `action_required`} plus `tollFreeNumber` (null until the new number is provisioned) and any `rejectionReason`. Returns `{ "pending": null }` when no upgrade is in flight, which is also what it returns once the carrier has approved the upgrade (the new number has taken over) or rejected it outright. |
+| `resubmit_business_upgrade` | Use when status is `action_required`. Same field shape as `start_business_upgrade`; omitted fields keep their previously-submitted values. Pair with a fresh `preflight_business_upgrade` first. After an outright rejection there is nothing left to resubmit (`404 no_pending_upgrade`): start a new upgrade instead. |
 | `cancel_business_upgrade` | Use when the user changes their mind. Releases the reserved TFN, deletes the new profile, removes the stored EIN doc, clears the pending row. Idempotent. The current (old-entity) number is untouched. |
 | `set_business_upgrade_old_number_disposition` | After `verified`. `disposition: "moved"` (requires `targetWorkspaceId`) keeps the old number alive under another workspace owned by the same user; `disposition: "released"` returns it to the carrier pool. Idempotent. |
 
@@ -89,16 +89,15 @@ If the user says "sole prop" but provides an EIN, `preflight` will return an aut
 ## Recommended flow
 
 1. **Detect intent.** User mentions LLC / new EIN / rebrand / entity change.
-2. **Gather the minimum.** Ask: new legal name, BRN (EIN), entity type, formation date.
-3. **Preflight.** Call `preflight_business_upgrade`. If issues are returned, apply the auto-fixes and ask the user to confirm the corrected values.
-4. **Optional: fill gaps.** If they have other verified workspaces, call `get_business_upgrade_best_prefill` and merge in `useCase`, `sampleMessages`, `optInWorkflow`.
+2. **Gather the details.** Ask: new legal name, BRN (EIN), entity type, formation date, business address, website and a contact (name, email, phone).
+3. **Fill gaps.** If they have other verified workspaces, call `get_business_upgrade_best_prefill` and merge in the messaging fields from its `prefill` (`monthlyVolume`, `useCase`, `useCaseSummary`, `sampleMessages`, `optInWorkflow`, `additionalInformation`, ...).
+4. **Preflight.** Call `preflight_business_upgrade` with the whole payload. If `verdict` isn't `ready`, apply the `proposedFixes`, ask the user to confirm the corrected values or supply what's missing, and preflight again.
 5. **EIN doc check.** If the entity is <6 months old, ask for the CP-575 / 147C as a PDF and pass it as `einDocBase64`.
 6. **Submit.** Call `start_business_upgrade`. Reassure: "Your old number keeps sending; new one is in review for ~1–2 weeks."
 7. **Next turn(s).** Call `get_business_upgrade_status` when the user asks for an update.
-   - `pending` / `processing` → "Still in carrier review, nothing to do."
+   - `provisioning` / `pending` / `in_progress` / `processing` → "Still in carrier review, nothing to do."
    - `action_required` → carrier needs more info; surface the rejection reason and prep a `resubmit_business_upgrade` with corrected fields.
-   - `rejected` → same as above but with a harder fix; preflight + resubmit.
-   - `verified` → congratulate, then ask about the old number and call `set_business_upgrade_old_number_disposition`.
+   - `{ "pending": null }` after a submission → the review has finished and Sendly has emailed the user the outcome. Approved: congratulate, then ask about the old number and call `set_business_upgrade_old_number_disposition`. Rejected outright: resubmit is no longer possible, so preflight the corrected details and call `start_business_upgrade` again.
 8. **Mid-flight cancel.** If the user changes their mind, call `cancel_business_upgrade`. No effect on the current number.
 
 ## Examples

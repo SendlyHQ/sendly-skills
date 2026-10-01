@@ -45,23 +45,23 @@ curl -X POST https://sendly.live/api/v1/account/keys/key_abc123/rotate \
     "id": "key_def456",
     "name": "Production (rotated)",
     "type": "live",
-    "prefix": "sk_live",
-    "lastFour": "9f2a",
-    "permissions": ["sms:send", "sms:read", "..."],
+    "keyPrefix": "sk_live_v1_k",
+    "scopes": ["sms:send", "sms:read", "..."],
+    "isActive": true,
+    "rotatedFromId": "key_abc123",
     "createdAt": "2026-07-09T10:00:00Z",
-    "isRevoked": false,
-    "key": "sk_live_9f2a…",
+    "key": "sk_live_v1_…",
     "warning": "This key will only be shown once. Store it securely."
   },
   "oldKey": {
     "id": "key_abc123",
     "name": "Production",
     "type": "live",
-    "prefix": "sk_live",
-    "lastFour": "1c7b",
-    "isRevoked": false
+    "keyPrefix": "sk_live_v1_k",
+    "isActive": true,
+    "expiresAt": "2026-07-12T10:00:00Z"
   },
-  "message": "Old key will expire in 24 hours"
+  "message": "Old key will expire in 72 hours"
 }
 ```
 
@@ -104,4 +104,3 @@ The rest of the key lifecycle lives under the same `/api/v1/account/keys` base a
 ## Full reference
 
 - API keys docs: https://sendly.live/docs/api-keys
-</content>

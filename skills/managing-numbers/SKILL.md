@@ -32,8 +32,8 @@ All requests require a Bearer token (`SENDLY_API_KEY`). Reads need the `numbers:
 
 ```json
 {
-  "id": "num_abc123",
-  "phoneNumber": "+14155551234",
+  "id": "4b8e1f02-3a7d-4c95-91e6-0d52c7a8b431",
+  "phoneNumber": "+14155550142",
   "status": "active",
   "source": "purchased",
   "countryCode": "US",
@@ -63,7 +63,7 @@ curl https://sendly.live/api/v1/numbers \
 ### Get one number
 
 ```bash
-curl https://sendly.live/api/v1/numbers/num_abc123 \
+curl https://sendly.live/api/v1/numbers/4b8e1f02-3a7d-4c95-91e6-0d52c7a8b431 \
   -H "Authorization: Bearer $SENDLY_API_KEY"
 ```
 
@@ -77,7 +77,7 @@ Only two mutations are supported. Supply at least one:
 - `pendingCancellation: false` — cancel a previously scheduled release and keep the number.
 
 ```bash
-curl -X PATCH https://sendly.live/api/v1/numbers/num_abc123 \
+curl -X PATCH https://sendly.live/api/v1/numbers/4b8e1f02-3a7d-4c95-91e6-0d52c7a8b431 \
   -H "Authorization: Bearer $SENDLY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"isDefault": true}'
@@ -85,7 +85,7 @@ curl -X PATCH https://sendly.live/api/v1/numbers/num_abc123 \
 
 ```bash
 # "Keep this number" — cancel a scheduled release
-curl -X PATCH https://sendly.live/api/v1/numbers/num_abc123 \
+curl -X PATCH https://sendly.live/api/v1/numbers/4b8e1f02-3a7d-4c95-91e6-0d52c7a8b431 \
   -H "Authorization: Bearer $SENDLY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"pendingCancellation": false}'
@@ -100,7 +100,7 @@ Returns the full updated owned-number record (including `isDefault`).
 Release the number (or, for a live paid purchase, schedule it to be released at the end of the paid period).
 
 ```bash
-curl -X DELETE https://sendly.live/api/v1/numbers/num_abc123 \
+curl -X DELETE https://sendly.live/api/v1/numbers/4b8e1f02-3a7d-4c95-91e6-0d52c7a8b431 \
   -H "Authorization: Bearer $SENDLY_API_KEY"
 ```
 
@@ -125,11 +125,11 @@ import Sendly from "@sendly/node";
 const sendly = new Sendly(process.env.SENDLY_API_KEY!);
 
 const { numbers } = await sendly.numbers.list();          // list owned numbers
-const number = await sendly.numbers.get("num_abc123");    // one number (incl. isDefault)
-await sendly.numbers.update("num_abc123", { isDefault: true });           // make default
-await sendly.numbers.update("num_abc123", { pendingCancellation: false }); // keep (cancel release)
+const number = await sendly.numbers.get("4b8e1f02-3a7d-4c95-91e6-0d52c7a8b431");    // one number (incl. isDefault)
+await sendly.numbers.update("4b8e1f02-3a7d-4c95-91e6-0d52c7a8b431", { isDefault: true });           // make default
+await sendly.numbers.update("4b8e1f02-3a7d-4c95-91e6-0d52c7a8b431", { pendingCancellation: false }); // keep (cancel release)
 
-const result = await sendly.numbers.release("num_abc123"); // release / schedule release
+const result = await sendly.numbers.release("4b8e1f02-3a7d-4c95-91e6-0d52c7a8b431"); // release / schedule release
 if (result.scheduled) {
   console.log(`Releases at ${result.scheduledReleaseAt}`);
 } else {
@@ -157,4 +157,3 @@ const buy = await sendly.numbers.buy({
 ## Full reference
 
 - Numbers docs: https://sendly.live/docs/numbers
-</content>

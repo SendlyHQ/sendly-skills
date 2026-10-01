@@ -65,7 +65,7 @@ Supports `limit` (default 50, max 200) and `offset` (default 0).
   "links": [
     {
       "code": "Ab3xY7",
-      "shortUrl": "https://sendly.live/l/Ab3xY7",
+      "shortUrl": "https://sendly.live/l/acme/Ab3xY7",
       "destinationUrl": "https://example.com/welcome",
       "brandSlug": "acme",
       "clickCount": 42,
@@ -137,5 +137,3 @@ await sendly.links.setDisabled(link.code, true); // set state explicitly
 ## Full reference
 
 - Links docs: https://sendly.live/docs/links
-</content>
-</invoke>
