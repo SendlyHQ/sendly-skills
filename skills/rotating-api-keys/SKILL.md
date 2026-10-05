@@ -21,7 +21,7 @@ console.log(message);    // "Old key will expire in 24 hours"
 
 ## Authentication
 
-Send a Bearer token (`SENDLY_API_KEY`). Any valid key can rotate a key in its own workspace — no extra scope is required. The key you rotate does not have to be the key you authenticate with.
+Send a Bearer token (`SENDLY_API_KEY`). No extra scope is required, and the key you rotate does not have to be the key you authenticate with, but a key can only rotate, revoke or rename keys that are no stronger than itself: it must hold every scope the target key has, and a test key cannot touch a live key. A key can always rotate itself.
 
 ## REST API
 
@@ -75,6 +75,7 @@ curl -X POST https://sendly.live/api/v1/account/keys/key_abc123/rotate \
 | `invalid_state` | 400 | The key is inactive or revoked and can't be rotated |
 | `already_rotating` | 400 | This key is already rotating — wait for its grace period to end first |
 | `predecessor_in_grace` | 400 | The key's predecessor is still inside its grace period |
+| `insufficient_permissions` | 403 | The target key has a scope your key lacks, or your key is a test key and the target is live |
 | `not_found` | 404 | No such key in your workspace |
 
 ## Node.js SDK
