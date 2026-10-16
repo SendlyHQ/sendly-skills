@@ -145,7 +145,7 @@ curl -X POST https://sendly.live/api/v1/whatsapp/signup/6f1d2c7e-3a4b-4c5d-9e8f-
   -d '{"code": "482913"}'
 ```
 
-`200` with `status: "active"` once WhatsApp accepts it (the `whatsapp_account.connected` webhook fires). A wrong code is `422 whatsapp_verification_code_invalid` with `attemptsRemaining`; the 5th wrong code fails the session (`409 whatsapp_verification_failed`, fee refunded). `502 whatsapp_verification_unavailable` doesn't count the attempt: submit the same code again shortly. `502 whatsapp_activation_pending` means WhatsApp accepted the code but the number couldn't be connected yet: don't submit again, check the signup later. Never retry a code submission or an add-by-code start automatically: each submission uses one of the 5 attempts, and a start that failed with `502 whatsapp_verification_start_failed` has already been refunded, so starting again is a new $19 session.
+`200` with `status: "active"` once WhatsApp accepts it (the `whatsapp_account.connected` webhook fires). A wrong code is `422 whatsapp_verification_code_invalid` with `attemptsRemaining`; the 5th wrong code fails the session (`409 whatsapp_verification_failed`, fee refunded). `503 whatsapp_verification_unavailable` doesn't count the attempt: submit the same code again shortly. `503 whatsapp_activation_pending` means WhatsApp accepted the code but the number couldn't be connected yet: don't submit again, check the signup later. Never retry a code submission or an add-by-code start automatically: each submission uses one of the 5 attempts, and a start that failed with `503 whatsapp_verification_start_failed` has already been refunded, so starting again is a new $19 session.
 
 Ask for a new code with `POST /whatsapp/signup/{id}/resend` and an optional `{"verificationMethod": "voice"}` (leaving it out means `sms`). Resends are 30 seconds apart, counted from the last code request, resend or submission: sooner is `429 whatsapp_verification_resend_too_soon` with `retryAfter` (seconds) and a `Retry-After` header. After a resend, wait until `verificationCode` changes before submitting it. A session left untouched for about an hour fails with `verification_expired`, and a code is only accepted within 3 hours of the start (`409 signup_not_active` after that).
 
@@ -190,15 +190,15 @@ curl -X PATCH https://sendly.live/api/v1/whatsapp/senders/%2B15125550190/convers
   -d '{"iceBreakers": ["Book a table", "Opening hours"], "commands": [{"command": "menu", "description": "See the menu"}]}'
 ```
 
-Each list you send replaces the stored list, `[]` clears it, and a list you leave out stays as it is. A rule broken is `400 invalid_request` with a message naming it; `502 whatsapp_conversational_components_update_failed` (or `_fetch_failed` on the GET) is transient.
+Each list you send replaces the stored list, `[]` clears it, and a list you leave out stays as it is. A rule broken is `400 invalid_request` with a message naming it; `503 whatsapp_conversational_components_update_failed` (or `_fetch_failed` on the GET) is transient.
 
 ### WhatsApp calling
 
-`PATCH /whatsapp/senders/{phoneNumber}/calling` with `{"enabled": true}` turns it on; the response is `{ phoneNumber, callingEnabled, outboundCallingAllowed }`. Once on, a WhatsApp user calling the number rings exactly like a phone call (the dashboard or the number's AI agent answers, per its voice mode), at the normal inbound rate. Turning it on needs voice switched on for the number (`409 voice_not_enabled`). `422 whatsapp_calling_unavailable` means Meta didn't allow it: it needs the account at the 2,000-recipients-a-day messaging limit and an approved display name. `502 whatsapp_calling_update_failed` is transient. There is no API for placing WhatsApp calls. Calls carry `channel` (`phone`, `whatsapp` or `browser`).
+`PATCH /whatsapp/senders/{phoneNumber}/calling` with `{"enabled": true}` turns it on; the response is `{ phoneNumber, callingEnabled, outboundCallingAllowed }`. Once on, a WhatsApp user calling the number rings exactly like a phone call (the dashboard or the number's AI agent answers, per its voice mode), at the normal inbound rate. Turning it on needs voice switched on for the number (`409 voice_not_enabled`). `422 whatsapp_calling_unavailable` means Meta didn't allow it: it needs the account at the 2,000-recipients-a-day messaging limit and an approved display name. `503 whatsapp_calling_update_failed` is transient. There is no API for placing WhatsApp calls. Calls carry `channel` (`phone`, `whatsapp` or `browser`).
 
 ### Profile photo
 
-`POST /whatsapp/senders/{phoneNumber}/profile/photo` uploads one as `multipart/form-data` in the field `file`: JPEG or PNG by its bytes (`400 whatsapp_profile_photo_invalid` otherwise, `400 file_required` without one), at most 5 MB (`413 whatsapp_profile_photo_too_large`), ideally square and at least 192 pixels wide (640 recommended). `DELETE` on the same path removes it. Both return the profile; `502 whatsapp_profile_update_failed` means WhatsApp refused or couldn't be reached, so fix the image or retry.
+`POST /whatsapp/senders/{phoneNumber}/profile/photo` uploads one as `multipart/form-data` in the field `file`: JPEG or PNG by its bytes (`400 whatsapp_profile_photo_invalid` otherwise, `400 file_required` without one), at most 5 MB (`413 whatsapp_profile_photo_too_large`), ideally square and at least 192 pixels wide (640 recommended). `DELETE` on the same path removes it. Both return the profile; `503 whatsapp_profile_update_failed` means WhatsApp refused or couldn't be reached, so fix the image or retry.
 
 ### Check a 24-hour window
 
@@ -318,15 +318,15 @@ await sendly.whatsapp.templates.update("c4e1a730-58bd-4f92-9a61-7d0e2b845c19", {
 | `whatsapp_template_not_approved` | 422 | Template exists but isn't sendable (includes `templateStatus`) | Wait for review, or fix a rejected template via update |
 | `whatsapp_invalid_content` | 400 | Zero or multiple of text/media/template, >1 media URL, body/caption too long, or variable mismatch | Fix the payload |
 | `whatsapp_send_failed` | 422 | WhatsApp refused the message; final, and you weren't charged. Cached under the idempotency key and replayed for 24 hours | Don't retry; check `errorCode` and `message` |
-| `whatsapp_send_failed` | 502 | WhatsApp couldn't be reached: not sent, safe to send again. You weren't charged. Never cached | Retry with the same `Idempotency-Key` |
+| `whatsapp_send_failed` | 503 | WhatsApp couldn't be reached: not sent, safe to send again. You weren't charged. Never cached | Retry with the same `Idempotency-Key` |
 | `whatsapp_send_unconfirmed` | 409 | Outcome unknown: the message was marked failed and refunded but may still be delivered. Cached under the idempotency key | Check before sending it again, or it could arrive twice |
 | `whatsapp_business_account_not_found` | 404 | Adding by code: no connected account with that `businessAccountId` and an active number in this workspace | Connect one with the Facebook flow first |
-| `whatsapp_verification_start_failed` | 422 / 502 | WhatsApp refused to verify the number (422, final) or couldn't be reached (502). Session failed, fee refunded | 422: check the number and display name; 502: start again later, once |
+| `whatsapp_verification_start_failed` | 422 / 503 | WhatsApp refused to verify the number (422, final) or couldn't be reached (503). Session failed, fee refunded | 422: check the number and display name; 503: start again later, once |
 | `whatsapp_verification_code_invalid` | 422 | Wrong code (`attemptsRemaining` in the body) | Check the code or request a new one |
 | `whatsapp_verification_failed` | 409 | 5 wrong codes; session failed, fee refunded | Start again |
 | `whatsapp_verification_busy` | 409 | Another code for the number is being checked | Try again in a moment |
-| `whatsapp_verification_unavailable` | 502 | WhatsApp couldn't check the code; the attempt isn't counted | Submit the same code again shortly |
-| `whatsapp_activation_pending` | 502 | Code accepted, but the number couldn't be connected yet | Don't resubmit; check the signup later |
+| `whatsapp_verification_unavailable` | 503 | WhatsApp couldn't check the code; the attempt isn't counted | Submit the same code again shortly |
+| `whatsapp_activation_pending` | 503 | Code accepted, but the number couldn't be connected yet | Don't resubmit; check the signup later |
 | `whatsapp_verification_resend_too_soon` | 429 | Less than 30 seconds since the last code request, resend or submission (`retryAfter`) | Wait `retryAfter` seconds |
 | `signup_not_active` | 409 | The signup isn't waiting for a code (failed, or more than 3 hours old) | Start again |
 | `voice_not_enabled` | 409 | Turning WhatsApp calling on for a number whose voice is off | Switch voice on for the number first |

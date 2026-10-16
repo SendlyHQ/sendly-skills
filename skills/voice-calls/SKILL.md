@@ -85,7 +85,7 @@ curl -X PATCH https://sendly.live/api/v1/voice/numbers/%2B15125550188 \
   -d '{ "voiceMode": "agent", "agentId": "3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b" }'
 ```
 
-Returns the number with `voiceEnabled: true` and `voiceMode: "agent"`: from now on real callers to the number reach the agent. Without `voiceEnabled`, `"voiceMode": "ring_dashboard"` or `"agent"` on their own switch voice on, and `"voiceMode": "none"` on its own switches it off. `{"voiceMode": "ring_dashboard"}` rings the team in the dashboard instead (the number can still place agent calls), and `{"voiceEnabled": false}` switches voice off. Agent mode needs an enabled agent in the workspace (`400 agent_required`, `404 agent_not_found`, `409 agent_disabled`). Switching voice on can fail with `502 voice_attach_failed` (retry shortly) or `503 voice_unavailable`.
+Returns the number with `voiceEnabled: true` and `voiceMode: "agent"`: from now on real callers to the number reach the agent. Without `voiceEnabled`, `"voiceMode": "ring_dashboard"` or `"agent"` on their own switch voice on, and `"voiceMode": "none"` on its own switches it off. `{"voiceMode": "ring_dashboard"}` rings the team in the dashboard instead (the number can still place agent calls), and `{"voiceEnabled": false}` switches voice off. Agent mode needs an enabled agent in the workspace (`400 agent_required`, `404 agent_not_found`, `409 agent_disabled`). Switching voice on can fail with `503 voice_attach_failed` (retry shortly) or `503 voice_unavailable`.
 
 ### Find a number you can call from
 
@@ -335,8 +335,8 @@ Refusals are checked in roughly this order; fix the first one you hit.
 | `agent_limit` | 409 | The workspace already has 20 agents | Reuse or delete one |
 | `agent_in_use` | 409 | Deleting or switching off (`{"enabled": false}`) an agent that answers numbers; `numbers` lists them | Point each number elsewhere with `PATCH /voice/numbers/:number`, then try again |
 | `invalid_address` | 422 | The address could not be verified; `suggested` holds a corrected one | Confirm `suggested` with the user, then register it |
-| `voice_attach_failed` | 502 | Voice could not be switched on for the number | Retry shortly |
-| `carrier_refused` | 502 | The emergency address registration was refused | Retry shortly; contact support if the message says the number could not be found for emergency registration |
+| `voice_attach_failed` | 503 | Voice could not be switched on for the number | Retry shortly |
+| `carrier_refused` | 503 | The emergency address registration was refused | Retry shortly; contact support if the message says the number could not be found for emergency registration |
 | `voice_unavailable` | 503 | Voice cannot be switched on for numbers right now | Retry later |
 
 ## Full reference
