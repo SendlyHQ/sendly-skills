@@ -78,12 +78,12 @@ curl -X POST https://sendly.live/api/v1/whatsapp/signup \
 }
 ```
 
-Relay `connectUrl` to the account owner: they open it in a browser and sign in with Facebook to link their WhatsApp Business Account. Connecting a number is free, with no monthly WhatsApp fee. Calling again for a number with an in-flight signup returns the same signup.
+Relay `connectUrl` to the account owner: they open it in a browser and sign in with Facebook to link their WhatsApp Business Account. A one-time **$9.99 connection fee** per number is charged to your card when the signup starts (no monthly WhatsApp fee). If the connection fails, the $9.99 fee is refunded automatically. There is no refund once a number has connected: a later disconnect gets nothing back. Calling again for a number with an in-flight signup returns the same signup without charging again.
 
-Two refusals need a wait:
+Two refusals come before any charge or need a wait:
 
-- `503 whatsapp_unavailable` — WhatsApp connections are temporarily unavailable. The body carries `retryAfter: 3600` and the response a `Retry-After: 3600` header; try again after it. Only signup returns this code; no send path does.
-- `429 whatsapp_signup_limit_reached` — 5 attempts failed (or 20 were cancelled) in the last 24 hours. Don't retry until the next day; find out why the earlier ones failed first.
+- `503 whatsapp_unavailable` — WhatsApp connections are temporarily unavailable. Nothing was charged. The body carries `retryAfter: 3600` and the response a `Retry-After: 3600` header; try again after it. Only signup returns this code; no send path does.
+- `429 whatsapp_signup_limit_reached` — 5 charged attempts failed (or 20 were cancelled) in the last 24 hours. Don't retry until the next day; find out why the earlier ones failed first.
 
 Poll the signup until it is `active`:
 
@@ -92,7 +92,7 @@ curl https://sendly.live/api/v1/whatsapp/signup/0b64c1de-… \
   -H "Authorization: Bearer $SENDLY_API_KEY"
 ```
 
-Statuses: `initiated` (waiting on the human) → `registering` → `active`, or `failed` (a number [added by code](#add-a-number-to-a-connected-account-by-code) is `verifying` instead). After the Facebook step the signup stays `registering` while WhatsApp activates the number. Activation usually takes a few minutes but can take hours. If it hasn't finished about 6 hours after the session began, the session fails with `registration_timeout`. Keep polling every minute or so. A `failed` signup has one code in `failureReasons`:
+Statuses: `initiated` (waiting on the human) → `registering` → `active`, or `failed` (a number [added by code](#add-a-number-to-a-connected-account-by-code) is `verifying` instead). After the Facebook step the signup stays `registering` while WhatsApp activates the number. Activation usually takes a few minutes but can take hours. If it hasn't finished about 6 hours after the session began, the session fails with `registration_timeout` and the fee is refunded. Keep polling every minute or so. A `failed` signup has one code in `failureReasons`:
 
 | Reason | Meaning |
 |---|---|
@@ -102,11 +102,12 @@ Statuses: `initiated` (waiting on the human) → `registering` → `active`, or 
 | `waba_already_connected` | Another workspace holds that WhatsApp Business Account or is connecting it. |
 | `registration_timeout` | Activation hadn't finished about 6 hours after the session began. |
 | `meta_exchange_failed`, `registration_failed` | The connection couldn't be completed. Try again. |
+| `setup_fee_payment_failed` | The $9.99 fee couldn't be charged. |
 | `verification_start_failed` | Adding a number by code: WhatsApp wouldn't start verifying the number. |
 | `verification_failed` | Adding a number by code: 5 wrong codes. |
 | `verification_expired` | Adding a number by code: the code wasn't entered in time. |
 
-The API never sends a status of `expired`.
+If the connection fails, the $9.99 fee is refunded automatically. The API never sends a status of `expired`.
 
 ### Add a number to a connected account (by code)
 
@@ -119,7 +120,7 @@ curl -X POST https://sendly.live/api/v1/whatsapp/signup \
   -d '{"phoneNumber": "+15125550191", "businessAccountId": "104996582519384", "verificationMethod": "sms"}'
 ```
 
-`verificationMethod` is `sms` (a text message, the default) or `voice` (a call to the number). `displayName` (optional, at most 512 characters) is the name WhatsApp shows; it defaults to the account's existing display name, else its business name (`400 display_name_required` if there is neither). The number checks and the `429` refusal are the same as for a Facebook connection, and it is free too.
+`verificationMethod` is `sms` (a text message, the default) or `voice` (a call to the number). `displayName` (optional, at most 512 characters) is the name WhatsApp shows; it defaults to the account's existing display name, else its business name (`400 display_name_required` if there is neither). The number checks, the one-time **$9.99 fee** (refunded automatically if adding the number fails) and the `402`/`429` refusals are the same as for a Facebook connection.
 
 **Response** (`201`; no `connectUrl`):
 ```json
@@ -135,7 +136,7 @@ curl -X POST https://sendly.live/api/v1/whatsapp/signup \
 }
 ```
 
-Calling again for a number that is already `verifying` returns that session (`200`) without a second code. Poll `GET /whatsapp/signup/{id}`: while `verifying` it adds `verificationCode`, the 6-digit code once WhatsApp's text has arrived on the number in this workspace (else `null`). Once a code has been submitted, it only shows a code that arrived after the last submission or resend, so it never offers a code WhatsApp already turned down. Before the first submission a resend doesn't hide the earlier code: `verificationCode` keeps showing it until the new code arrives. A code sent by voice call never shows there: someone has to answer the call and read it out. Submit the code:
+Calling again for a number that is already `verifying` returns that session (`200`) without a second charge or a second code. Poll `GET /whatsapp/signup/{id}`: while `verifying` it adds `verificationCode`, the 6-digit code once WhatsApp's text has arrived on the number in this workspace (else `null`). Once a code has been submitted, it only shows a code that arrived after the last submission or resend, so it never offers a code WhatsApp already turned down. Before the first submission a resend doesn't hide the earlier code: `verificationCode` keeps showing it until the new code arrives. A code sent by voice call never shows there: someone has to answer the call and read it out. Submit the code:
 
 ```bash
 curl -X POST https://sendly.live/api/v1/whatsapp/signup/6f1d2c7e-3a4b-4c5d-9e8f-0a1b2c3d4e5f/verify \
@@ -144,7 +145,7 @@ curl -X POST https://sendly.live/api/v1/whatsapp/signup/6f1d2c7e-3a4b-4c5d-9e8f-
   -d '{"code": "482913"}'
 ```
 
-`200` with `status: "active"` once WhatsApp accepts it (the `whatsapp_account.connected` webhook fires). A wrong code is `422 whatsapp_verification_code_invalid` with `attemptsRemaining`; the 5th wrong code fails the session (`409 whatsapp_verification_failed`). `503 whatsapp_verification_unavailable` doesn't count the attempt: submit the same code again shortly. `503 whatsapp_activation_pending` means WhatsApp accepted the code but the number couldn't be connected yet: don't submit again, check the signup later. Never retry a code submission or an add-by-code start automatically: each submission uses one of the 5 attempts, and a start that failed with `503 whatsapp_verification_start_failed` has already failed, so starting again is a new session.
+`200` with `status: "active"` once WhatsApp accepts it (the `whatsapp_account.connected` webhook fires). A wrong code is `422 whatsapp_verification_code_invalid` with `attemptsRemaining`; the 5th wrong code fails the session (`409 whatsapp_verification_failed`, fee refunded). `503 whatsapp_verification_unavailable` doesn't count the attempt: submit the same code again shortly. `503 whatsapp_activation_pending` means WhatsApp accepted the code but the number couldn't be connected yet: don't submit again, check the signup later. Never retry a code submission or an add-by-code start automatically: each submission uses one of the 5 attempts, and a start that failed with `503 whatsapp_verification_start_failed` has already been refunded, so starting again is a new $9.99 session.
 
 Ask for a new code with `POST /whatsapp/signup/{id}/resend` and an optional `{"verificationMethod": "voice"}` (leaving it out means `sms`). Resends are 30 seconds apart, counted from the last code request, resend or submission: sooner is `429 whatsapp_verification_resend_too_soon` with `retryAfter` (seconds) and a `Retry-After` header. After a resend, wait until `verificationCode` changes before submitting it. A session left untouched for about an hour fails with `verification_expired`, and a code is only accepted within 3 hours of the start (`409 signup_not_active` after that).
 
@@ -307,8 +308,8 @@ await sendly.whatsapp.templates.update("c4e1a730-58bd-4f92-9a61-7d0e2b845c19", {
 | `whatsapp_not_enabled` | 403 | Flag off (on `/messages` sends) | Ask Sendly to enable WhatsApp |
 | `whatsapp_requires_live_key` | 403 | Test key used | Use a live `sk_live_*` key |
 | `insufficient_permissions` | 403 | The key lacks the `whatsapp:read`/`whatsapp:write` scope, or the role can't make the change (connecting and profile edits need owner or admin, template writes owner, admin or member) | Use a key with the scope, or ask someone with the role |
-| `whatsapp_unavailable` | 503 | Signup only (never a send): refused while WhatsApp connections are unavailable (`retryAfter: 3600` in the body, `Retry-After: 3600` header) | Try again after `retryAfter` seconds |
-| `whatsapp_signup_limit_reached` | 429 | 5 signups failed, or 20 were cancelled, in 24 hours | Wait until the next day |
+| `whatsapp_unavailable` | 503 | Signup only (never a send): refused before any charge while WhatsApp connections are unavailable (`retryAfter: 3600` in the body, `Retry-After: 3600` header) | Try again after `retryAfter` seconds |
+| `whatsapp_signup_limit_reached` | 429 | 5 charged signups failed, or 20 were cancelled, in 24 hours | Wait until the next day |
 | `recipient_opted_out` | 403 | The recipient is an opted-out contact in your workspace | Don't send |
 | `whatsapp_sender_not_connected` | 403 | `from` has no active WhatsApp connection (on a send) | Connect it via the signup flow |
 | `whatsapp_sender_not_connected` | 404 | Template create for a sender that isn't connected (checked first) | Connect it via the signup flow |
@@ -320,9 +321,9 @@ await sendly.whatsapp.templates.update("c4e1a730-58bd-4f92-9a61-7d0e2b845c19", {
 | `whatsapp_send_failed` | 503 | WhatsApp couldn't be reached: not sent, safe to send again. You weren't charged. Never cached | Retry with the same `Idempotency-Key` |
 | `whatsapp_send_unconfirmed` | 409 | Outcome unknown: the message was marked failed and refunded but may still be delivered. Cached under the idempotency key | Check before sending it again, or it could arrive twice |
 | `whatsapp_business_account_not_found` | 404 | Adding by code: no connected account with that `businessAccountId` and an active number in this workspace | Connect one with the Facebook flow first |
-| `whatsapp_verification_start_failed` | 422 / 503 | WhatsApp refused to verify the number (422, final) or couldn't be reached (503). Session failed | 422: check the number and display name; 503: start again later, once |
+| `whatsapp_verification_start_failed` | 422 / 503 | WhatsApp refused to verify the number (422, final) or couldn't be reached (503). Session failed, fee refunded | 422: check the number and display name; 503: start again later, once |
 | `whatsapp_verification_code_invalid` | 422 | Wrong code (`attemptsRemaining` in the body) | Check the code or request a new one |
-| `whatsapp_verification_failed` | 409 | 5 wrong codes; session failed | Start again |
+| `whatsapp_verification_failed` | 409 | 5 wrong codes; session failed, fee refunded | Start again |
 | `whatsapp_verification_busy` | 409 | Another code for the number is being checked | Try again in a moment |
 | `whatsapp_verification_unavailable` | 503 | WhatsApp couldn't check the code; the attempt isn't counted | Submit the same code again shortly |
 | `whatsapp_activation_pending` | 503 | Code accepted, but the number couldn't be connected yet | Don't resubmit; check the signup later |
