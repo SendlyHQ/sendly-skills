@@ -7,14 +7,14 @@ description: Places and inspects phone calls handled by a workspace's AI agents 
 
 A voice-enabled Sendly number can place a phone call that one of the workspace's AI agents talks through. Over the API you place the call, watch it, end it, and download the recording. You can also set up everything a call depends on over the API: create the agent, register the number's emergency address, and switch voice on for the number and choose who answers it. The dashboard does the same under Calls → Agents and Calls → Voice settings.
 
-> **Rolling out workspace by workspace.** Until voice is enabled for the workspace, every `/api/v1/calls` and `/api/v1/voice` route returns `404 voice_not_enabled`. Ask Sendly to enable it before relying on these endpoints. Every write (placing or ending a call, changing a number or an agent) needs a **live** key (`sk_live_*`) with the `calls:write` scope; test keys get `403 live_key_required`. Reads need `calls:read`.
+> **Rolling out workspace by workspace.** Until voice is enabled for the workspace, every `/api/v1/calls` and `/api/v1/voice` route returns `404 voice_not_enabled`. Ask Sendly to enable it before relying on these endpoints. Voice on its own covers receiving calls, agents, transfers and browser calls. **Calling out is a separate switch, off by default**, that Sendly turns on when asked; until then `POST /api/v1/calls` returns `404 outbound_calls_not_enabled`. Every write (placing or ending a call, changing a number or an agent) needs a **live** key (`sk_live_*`) with the `calls:write` scope; test keys get `403 live_key_required`. Reads need `calls:read`.
 
 ## The four rules that shape everything
 
 1. **An API call is always answered by an agent.** There is no human on your side of the line, so `agentId` is required (`400 agent_required` without it). The agent speaks first, using its instructions plus the `context` you pass for this call.
-2. **US and Canada only, E.164 only.** `to` must look like `+15125550123`; anything else is `400 invalid_number` or `400 destination_not_supported`. 911 and other short service codes cannot be dialled (`400 invalid_number`).
+2. **US and Canada only, E.164 only.** `to` must look like `+15125550123`; anything else is `400 invalid_number` or `400 destination_not_supported`. 911 and other short service codes cannot be dialled (`400 invalid_number`): Sendly can't reach emergency services at all. Calls placed here always go over the phone network: leave `channel` out or send `"phone"`; any other value is `400 invalid_request`.
 3. **Calls are prepaid per started minute.** An agent-handled outbound call costs 10 credits a minute (2 for the call, 8 for the agent; 1 credit = $0.01). You need at least one minute in the balance to start (`402 insufficient_credits`); if the balance runs out mid-call the call ends with `hangupClass: "credits_exhausted"`. Unanswered calls cost nothing.
-4. **The from number needs an emergency address.** US law requires one before the number can place calls; without it you get `428 e911_required`. Register it with `POST /api/v1/voice/numbers/:number/emergency-address` (see below) or in the dashboard under Calls → Voice settings.
+4. **The from number needs an emergency address.** US law requires one before the number can place calls; without it you get `428 e911_required`. Only US and Canadian local numbers can call out; toll-free numbers receive calls only. Register it with `POST /api/v1/voice/numbers/:number/emergency-address` (see below) or in the dashboard under Calls → Voice settings.
 
 ## Quick start
 
@@ -55,7 +55,7 @@ curl -X POST https://sendly.live/api/v1/voice/agents \
   }'
 ```
 
-Returns `201` with the agent: `id`, `object: "voice_agent"`, `name`, `enabled`, `voice`, `voiceLabel`, `language`, `greeting`, `instructions`, `tools`, `canSendSms`, `callsHandled`, `avgDurationSecs`, `createdAt`, `updatedAt`. Limits: `name` 1 to 80 characters, `greeting` up to 500, `instructions` up to 4000, `language` defaults to the voice's language (`en-US`, or `es-MX` for `diego`), 20 agents per workspace (`409 agent_limit`). The greeting is spoken only when the agent answers an inbound call; on a call it places, it opens from its instructions plus the call's `context`. `tools.sendSms` (default true) lets it text the person on the call. `tools.transferTo` is an E.164 number the agent may transfer a phone caller to: a caller who asks for a person is offered a transfer and, once they confirm, connected, and the call ends with `hangupClass` `transferred`; if the line is busy or unanswered after 30 seconds the agent takes a message instead. `null` turns transfers off. `tools.backgroundAudio` (default false) plays quiet office ambience under the call. Change an agent with `PATCH /voice/agents/:id` and any subset of the same fields (`{"enabled": false}` switches it off). Switching an agent off and `DELETE /voice/agents/:id` both return `409 agent_in_use` with `numbers` while a number still answers with it, and change nothing; point those numbers elsewhere first.
+Returns `201` with the agent: `id`, `object: "voice_agent"`, `name`, `enabled`, `voice`, `voiceLabel`, `language`, `greeting`, `instructions`, `tools`, `canSendSms`, `callsHandled`, `avgDurationSecs`, `createdAt`, `updatedAt`. Limits: `name` 1 to 80 characters, `greeting` up to 500, `instructions` up to 4000, `language` defaults to the voice's language (`en-US`, or `es-MX` for `diego`), 20 agents per workspace (`409 agent_limit`). The greeting is spoken only when the agent answers an inbound call; on a call it places, it opens from its instructions plus the call's `context`. `tools.sendSms` (default true) lets it text the person on the call. `tools.transferTo` is a US or Canadian E.164 number the agent may transfer a phone caller to (not premium-rate and not a number the agent itself answers; anything else is `400 invalid_request`): a caller who asks for a person is offered a transfer and, once they confirm, connected, and the call ends with `hangupClass` `transferred`. If the person doesn't answer or the line is busy, the agent stays on the call and offers to take a message. If the transfer's outcome can't be confirmed, the agent apologises and offers to take a message. Transfers only happen on inbound phone calls to your numbers; on a call the agent places, or a browser test call, it takes a message instead. `null` turns transfers off. `language` must suit the voice (`400 invalid_request` otherwise); leave it out to use the voice's own. `tools.backgroundAudio` (default false) plays quiet office ambience under the call. Change an agent with `PATCH /voice/agents/:id` and any subset of the same fields (`{"enabled": false}` switches it off). Switching an agent off and `DELETE /voice/agents/:id` both return `409 agent_in_use` with `numbers` while a number still answers with it, and change nothing; point those numbers elsewhere first.
 
 **2. Register the from number's emergency address.** Use the street address where the number is actually used; ask the user for it and never invent one.
 
@@ -73,7 +73,7 @@ curl -X POST https://sendly.live/api/v1/voice/numbers/%2B15125550188/emergency-a
   }'
 ```
 
-`:number` is the number's id or its E.164 number with the `+` encoded as `%2B`. `country` is `US` (default) or `CA`; `state` is the two-letter code. Returns the number with `emergencyAddress.status` set to `"provisioning"`, which already allows calls and normally becomes `"active"` within about ten minutes, or to `"active"` straight away when the registration completes at once. The first registration adds $1.50 a month to the number; registering again replaces the address without adding the charge again. `422 invalid_address` means the address could not be verified: show `suggested` to the user and register it only once they confirm.
+`:number` is the number's id or its E.164 number with the `+` encoded as `%2B`. `country` is `US` (default) or `CA`; `state` is the two-letter code. Returns the number with `emergencyAddress.status` set to `"provisioning"`, which already allows calls and normally becomes `"active"` within about ten minutes, or to `"active"` straight away when the registration completes at once. The first registration may add $1.50 a month to the number's price (only numbers that have a monthly price are charged); registering again replaces the address without adding the charge again. `422 invalid_address` means the address could not be verified: show `suggested` to the user and register it only once they confirm.
 
 **3. Switch voice on for the number and choose who answers calls to it.**
 
@@ -94,7 +94,7 @@ curl https://sendly.live/api/v1/voice/numbers \
   -H "Authorization: Bearer $SENDLY_API_KEY"
 ```
 
-Returns `{ "data": [VoiceNumber, …] }`, the default number first. Each number carries `voiceEnabled`, `voiceMode` (`none` | `ring_dashboard` | `agent`), `agentId`, `emergencyAddress` (null until one is registered, otherwise `{ "status", "address" }`) and `ratePerMinute` in credits (`{ "inbound", "outbound", "agent" }`). Pick one with `voiceEnabled: true` and an emergency address whose status is `provisioning` or `active`. If the workspace has exactly one voice-enabled number you can omit `from`; with several, `from` is required (`400 from_number_required`).
+Returns `{ "data": [VoiceNumber, …] }`, the default number first. Each number carries `voiceEnabled`, `voiceMode` (`none` | `ring_dashboard` | `agent`), `agentId`, `emergencyAddress` (null until one is registered, otherwise `{ "status", "address" }`) and `ratePerMinute` in credits (`{ "inbound", "outbound", "agent" }`). Pick one with `voiceEnabled: true` and an emergency address whose status is `provisioning` or `active`. Only US and Canadian local numbers can place calls; toll-free numbers receive calls only. If the workspace has exactly one voice-enabled number that can place calls you can omit `from`; with more than one number that can place calls, `from` is required (`400 from_number_required`).
 
 ### Place a call
 
@@ -121,6 +121,7 @@ curl -X POST https://sendly.live/api/v1/calls \
   "id": "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
   "object": "call",
   "kind": "pstn",
+  "channel": "phone",
   "direction": "outbound",
   "status": "ringing",
   "handledBy": "agent",
@@ -300,17 +301,19 @@ Refusals are checked in roughly this order; fix the first one you hit.
 | `live_key_required` | 403 | Test key on a write | Use a live `sk_live_*` key |
 | `insufficient_permissions` | 403 | Key lacks `calls:write` (or `calls:read`) | Issue a key with the scope |
 | `forbidden` | 403 | Viewer role in a team workspace tried to place or end a call | Use a member, admin or owner key |
-| `voice_unavailable` / `agents_unavailable` | 503 | Dialling or agents are not available right now | Retry later; tell the account owner |
-| `outbound_calls_not_enabled` | 404 | Outbound calling is off for the workspace | Ask Sendly to enable it |
+| `voice_unavailable` | 503 | Dialling is not available right now | Retry later; tell the account owner |
+| `agents_unavailable` | 503 | Agents are at capacity: the platform's limit on agent calls at once is reached, or the platform-wide monthly allowance for AI agents is used up. Numbers set to answer with an agent ring the dashboard instead meanwhile | Retry in a few minutes; if it persists it won't clear until the allowance resets on the 1st of the month (UTC), so tell the account owner instead of retrying |
+| `outbound_calls_not_enabled` | 404 | Calling out is off for the workspace (off by default) | Ask Sendly to turn calling out on |
 | `invalid_number` | 400 | `to` is not a valid number (911 and short service codes included), or equals `from` | Send E.164 with the country code |
 | `destination_not_supported` | 400 | Not a US or Canadian number | Only +1 US/CA destinations are supported |
 | `agent_required` | 400 | No `agentId` | Pass the id of an enabled agent |
-| `invalid_metadata` / `invalid_request` | 400 | Metadata shape, `context` over 2000 chars, body not an object | Fix the field the `message` names |
+| `invalid_metadata` / `invalid_request` | 400 | Metadata shape, `context` over 2000 chars, body not an object, `channel` other than `phone` | Fix the field the `message` names |
 | `agent_not_found` | 404 | No such agent in the workspace | Check the id with `GET /voice/agents` |
 | `agent_disabled` | 409 | Agent exists but is switched off | `PATCH /voice/agents/:id` with `{"enabled": true}` |
 | `number_not_found` | 404 | `from` is not a voice-enabled number in the workspace | Pick a number from `GET /voice/numbers` |
 | `no_voice_number` | 409 | No voice-enabled number in the workspace | Switch voice on with `PATCH /voice/numbers/:number` |
-| `from_number_required` | 400 | Several voice-enabled numbers, no `from` | Pass `from` |
+| `from_number_required` | 400 | More than one number that can place calls, no `from` | Pass `from` |
+| `from_number_not_supported` | 400 | The `from` number (named or picked for you) is toll-free or outside the US and Canada | Call from a US or Canadian local number |
 | `e911_required` | 428 | No emergency address on the `from` number | `POST /voice/numbers/:number/emergency-address` |
 | `insufficient_credits` | 402 | Below one minute at 10 credits (`creditsNeeded`, `currentBalance` included) | Top up credits |
 | `lines_busy` | 409 | All the workspace's lines are in use | Retry with backoff |
@@ -328,10 +331,11 @@ Refusals are checked in roughly this order; fix the first one you hit.
 | `invalid_voice_mode` | 400 | `voiceMode` is not `none`, `ring_dashboard` or `agent` | Use one of the three |
 | `agent_required` | 400 | Agent mode with no `agentId` on the request or the number | Pass the id of an enabled agent |
 | `invalid_address` | 400 | A required address field is missing or malformed, or the country is not US or CA | Send `street`, `city`, a two-letter `state` and a valid `zip` |
-| `e911_not_applicable` | 400 | The number is outside the US and Canada | Only US and Canadian numbers take an emergency address |
+| `e911_not_applicable` | 400 | The number is outside the US and Canada, or is toll-free | Only US and Canadian local numbers take an emergency address |
 | `number_not_found` | 404 | `:number` is not an active number in the workspace | Pick one from `GET /voice/numbers` |
 | `agent_not_found` | 404 | No such agent in the workspace | Check the id with `GET /voice/agents` |
 | `agent_disabled` | 409 | Pointing a number at a switched-off agent | Switch the agent on first |
+| `invalid_request` | 400 | Pointing a number at an agent whose `tools.transferTo` is that same number ("That agent transfers callers to this number, so a transfer would ring the agent again. Change the agent's transfer number first.") | Change the agent's transfer number first |
 | `agent_limit` | 409 | The workspace already has 20 agents | Reuse or delete one |
 | `agent_in_use` | 409 | Deleting or switching off (`{"enabled": false}`) an agent that answers numbers; `numbers` lists them | Point each number elsewhere with `PATCH /voice/numbers/:number`, then try again |
 | `invalid_address` | 422 | The address could not be verified; `suggested` holds a corrected one | Confirm `suggested` with the user, then register it |
