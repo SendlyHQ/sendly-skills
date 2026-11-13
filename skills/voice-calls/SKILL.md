@@ -1,6 +1,6 @@
 ---
 name: voice-calls
-description: Places and inspects phone calls handled by a workspace's AI agents via the Sendly Calls API, and sets up what those calls need via the Voice API. Covers creating an agent, registering a number's emergency address, switching voice on for a number, placing an outbound call to a US or Canadian number, choosing the from number, attaching per-call context and metadata, polling a call until it ends, reading the transcript, fetching the recording, hanging up, and recovering from every refusal code. Applies when an agent needs to phone a person (appointment confirmations, callbacks, reminders) rather than text them.
+description: Places and inspects phone calls handled by a workspace's AI agents via the Sendly Calls API, and sets up what those calls need via the Voice API. Covers creating an agent, registering a number's emergency address, switching voice on for a number, placing an outbound call to a US or Canadian number, choosing the from number, attaching per-call context and metadata, polling a call until it ends, reading the transcript, fetching the recording, hanging up, transferring a caller, connecting the workspace's own agent (its own model, SIP address or WebSocket server), and recovering from every refusal code. Applies when an agent needs to phone a person (appointment confirmations, callbacks, reminders) rather than text them.
 ---
 
 # AI Phone Calls with Sendly
@@ -56,6 +56,8 @@ curl -X POST https://sendly.live/api/v1/voice/agents \
 ```
 
 Returns `201` with the agent: `id`, `object: "voice_agent"`, `name`, `enabled`, `voice`, `voiceLabel`, `language`, `greeting`, `instructions`, `tools`, `canSendSms`, `callsHandled`, `avgDurationSecs`, `createdAt`, `updatedAt`. Limits: `name` 1 to 80 characters, `greeting` up to 500, `instructions` up to 4000, `language` defaults to the voice's language (`en-US`, or `es-MX` for `diego`), 20 agents per workspace (`409 agent_limit`). The greeting is spoken only when the agent answers an inbound call; on a call it places, it opens from its instructions plus the call's `context`. `tools.sendSms` (default true) lets it text the person on the call. `tools.transferTo` is a US or Canadian E.164 number the agent may transfer a phone caller to (not premium-rate and not a number the agent itself answers; anything else is `400 invalid_request`): a caller who asks for a person is offered a transfer and, once they confirm, connected, and the call ends with `hangupClass` `transferred`. If the person doesn't answer or the line is busy, the agent stays on the call and offers to take a message. If the transfer's outcome can't be confirmed, the agent apologises and offers to take a message. Transfers only happen on inbound phone calls to your numbers; on a call the agent places, or a browser test call, it takes a message instead. `null` turns transfers off. `language` must suit the voice (`400 invalid_request` otherwise); leave it out to use the voice's own. `tools.backgroundAudio` (default false) plays quiet office ambience under the call. Change an agent with `PATCH /voice/agents/:id` and any subset of the same fields (`{"enabled": false}` switches it off). Switching an agent off and `DELETE /voice/agents/:id` both return `409 agent_in_use` with `numbers` while a number still answers with it, and change nothing; point those numbers elsewhere first.
+
+**Bring your own agent.** An agent has a `kind`: `sendly` (the default, above), or the workspace's own agent: `custom_llm` (Sendly listens and speaks, your chat completions endpoint writes each reply), `sip` (Sendly connects the caller to your SIP address) or `websocket` (Sendly streams the call audio to your `wss://` server). Pass `kind` and a `connection` for that kind on create or update: `custom_llm` `{baseUrl, model, apiKey?, headers?}`, `sip` `{uri, transport?, mediaEncryption?, username?, password?, headers?}`, `websocket` `{url, audioFormat?, authToken?, customParameters?}`. Secrets are write-only: responses show `hasApiKey`, `hasPassword` or `hasAuthToken` instead, a secret left out of an update is kept, and `null` removes it. The response to creating your own agent (or switching a `sendly` agent to one) carries `signingSecret` once; store it, because Sendly signs every request to your agent with it in `X-Sendly-Signature: t=<unix>,v1=<hex HMAC-SHA256>`. `PATCH` with `{"rotateSigningSecret": true}` makes a new one (the old one stops working at once). The feature is switched on per workspace by Sendly support; until then these return `403 byo_agents_not_enabled`. A `sip` or `websocket` agent answers incoming calls only (`409 agent_kind_unsupported` from `POST /calls`). If your agent can't be reached, Sendly says one short line and transfers the caller to `tools.transferTo` or takes a message, and the call reads `agentFallback: true`. Full setup: https://sendly.live/docs/voice/bring-your-own-agent
 
 **2. Register the from number's emergency address.** Use the street address where the number is actually used; ask the user for it and never invent one.
 
@@ -164,7 +166,7 @@ curl "https://sendly.live/api/v1/calls?status=completed&agentId=3c4d5e6f-7081-42
   -H "Authorization: Bearer $SENDLY_API_KEY"
 ```
 
-Filters: `limit` (1 to 100, default 50), `offset`, `status`, `direction`, `kind` (`pstn` | `internal`), `agentId`, `to`, `from` (E.164, exact). Newest first.
+Filters: `limit` (1 to 100, default 50), `offset`, `status`, `direction`, `kind` (`pstn` | `internal`), `agentId`, `agentKind` (`sendly` | `custom_llm` | `sip` | `websocket`; calls from before agent kinds existed count as `sendly`), `to`, `from` (E.164, exact). Newest first. Every call carries `agentKind` (`null` when no agent handled it), `agentFallback` and `transfer` (`null`, or `{to, status, failureReason}`).
 
 **Response:** `{ "data": [Call, …], "pagination": { "total": 132, "limit": 20, "offset": 0, "hasMore": true } }`
 
@@ -176,6 +178,17 @@ curl -X POST https://sendly.live/api/v1/calls/6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e
 ```
 
 Returns the Call: a ringing call becomes `cancelled` (`hangupClass: "caller_cancelled"`), an active one `completed` (`normal`). Hanging up an already ended call returns it unchanged (200, idempotent).
+
+### Transfer a caller
+
+```bash
+curl -X POST https://sendly.live/api/v1/calls/6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f/transfer \
+  -H "Authorization: Bearer $SENDLY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"to": "+15125550142"}'
+```
+
+Hands the caller on an incoming phone call in progress to another number, whatever kind of agent is on the call. Leave `to` out to use the agent's `tools.transferTo`; any other US or Canadian number needs calling out switched on for the workspace (`403 outbound_not_enabled` otherwise), and the workspace needs credits left (`402 insufficient_credits`). Returns `202` with the Call and `transfer: {to, status: "pending", failureReason: null}`. Poll `GET /calls/:id`: `transfer.status` becomes `completed` (the call ends with `hangupClass: "transferred"`) or `failed` with `failureReason` `busy` | `no_answer` | `declined` | `unavailable` | `unknown`, and the caller stays on the call. Refusals: `400 transfer_to_required` (no `to` and no transfer number on the agent), `400 invalid_request` (`to` malformed, outside the US and Canada, premium-rate, the dialled number or a number the agent answers), `409 call_not_active`, `409 call_not_transferable` (not an incoming phone call), `409 transfer_in_progress` (one is under way, or 3 attempts used).
 
 ### Fetch the recording
 
@@ -212,6 +225,7 @@ const call = await sendly.calls.create({
 });
 
 const live = await sendly.calls.get(call.id);            // status, hangupClass, transcript
+await sendly.calls.transfer(inboundCallId, { to: "+15125550142" }); // incoming calls only; 202, then watch live.transfer
 const { data, pagination } = await sendly.calls.list({ status: "completed", limit: 20 });
 await sendly.calls.hangup(call.id);
 const rec = await sendly.calls.recording(call.id);       // rec.url is null until rec.status === "ready"
@@ -319,7 +333,12 @@ Refusals are checked in roughly this order; fix the first one you hit.
 | `lines_busy` | 409 | All the workspace's lines are in use | Retry with backoff |
 | `daily_call_limit` | 429 | Today's calling limit reached | Try again tomorrow |
 | `rate_limit_exceeded` | 429 | More than 10 creates a minute, or the key limit | Slow down; honour `X-RateLimit-*` |
-| `call_not_found` | 404 | Not this workspace's call (get, hangup, recording) | Check the id |
+| `agent_kind_unsupported` | 409 | The agent's `kind` is `sip` or `websocket`, which answer incoming calls only | Place the call with a `sendly` or `custom_llm` agent |
+| `call_not_found` | 404 | Not this workspace's call (get, hangup, transfer, recording) | Check the id |
+| `transfer_to_required` | 400 | Transfer without `to`, and the agent has no transfer number | Pass `to`, or set `tools.transferTo` on the agent |
+| `outbound_not_enabled` | 403 | Transfer `to` a number other than the agent's transfer number while calling out is off | Transfer to the agent's number, or ask Sendly to turn calling out on |
+| `call_not_active` / `call_not_transferable` | 409 | The call is not in progress, or is not an incoming phone call | Only transfer a live incoming phone call |
+| `transfer_in_progress` | 409 | A transfer is already under way, or the call has had 3 attempts | Watch `transfer.status` on `GET /calls/:id` |
 | `voice_internal_error` | 500 | Something went wrong on the platform | Retry once; report if it persists |
 
 ### Setting up numbers and agents
@@ -337,6 +356,8 @@ Refusals are checked in roughly this order; fix the first one you hit.
 | `agent_disabled` | 409 | Pointing a number at a switched-off agent | Switch the agent on first |
 | `invalid_request` | 400 | Pointing a number at an agent whose `tools.transferTo` is that same number ("That agent transfers callers to this number, so a transfer would ring the agent again. Change the agent's transfer number first.") | Change the agent's transfer number first |
 | `agent_limit` | 409 | The workspace already has 20 agents | Reuse or delete one |
+| `byo_agents_not_enabled` | 403 | `kind` is `custom_llm`, `sip` or `websocket` (or a `connection` or `rotateSigningSecret` was sent) and the workspace's bring-your-own-agent feature is off | Ask Sendly support to switch it on |
+| `invalid_request` | 400 | `connection.<field>: …`: the connection is missing for that `kind`, or breaks a rule (not `https`/`wss`/`sip`, an IP address, a host that isn't public, a header that can't be set); or `rotateSigningSecret` on a `sendly` agent | Fix the field the `message` names |
 | `agent_in_use` | 409 | Deleting or switching off (`{"enabled": false}`) an agent that answers numbers; `numbers` lists them | Point each number elsewhere with `PATCH /voice/numbers/:number`, then try again |
 | `invalid_address` | 422 | The address could not be verified; `suggested` holds a corrected one | Confirm `suggested` with the user, then register it |
 | `voice_attach_failed` | 503 | Voice could not be switched on for the number | Retry shortly |
